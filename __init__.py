@@ -1,81 +1,58 @@
-from flask import Flask, render_template_string, render_template, jsonify, request, redirect, url_for, session
-from flask import render_template
-from flask import json
-from urllib.request import urlopen
-from werkzeug.utils import secure_filename
 import sqlite3
+from flask import Flask, render_template, request, url_for, flash, redirect
 
-app = Flask(__name__)                                                                                                                  
-app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'  # Clé secrète pour les sessions
+app = Flask(name)
+app.config['SECRET_KEY'] = 'votre_cle_secrete_ici'
 
-# Fonction pour créer une clé "authentifie" dans la session utilisateur
-def est_authentifie():
-    return session.get('authentifie')
+def get_db_connection():
+    conn = sqlite3.connect('database.db')
+    conn.row_factory = sqlite3.Row
+    return conn
 
 @app.route('/')
-def hello_world():
-    return render_template('hello.html')
+def index():
+    conn = get_db_connection()
+    # On récupère toutes les tâches
+    taches = conn.execute('SELECT * FROM taches').fetchall()
+    conn.close()
+    return render_template('index.html', taches=taches)
 
-@app.route('/lecture')
-def lecture():
-    if not est_authentifie():
-        # Rediriger vers la page d'authentification si l'utilisateur n'est pas authentifié
-        return redirect(url_for('authentification'))
-
-  # Si l'utilisateur est authentifié
-    return "<h2>Bravo, vous êtes authentifié</h2>"
-
-@app.route('/authentification', methods=['GET', 'POST'])
-def authentification():
+@app.route('/ajouter', methods=('GET', 'POST'))
+def ajouter():
     if request.method == 'POST':
-        # Vérifier les identifiants
-        if request.form['username'] == 'admin' and request.form['password'] == 'password': # password à cacher par la suite
-            session['authentifie'] = True
-            # Rediriger vers la route lecture après une authentification réussie
-            return redirect(url_for('lecture'))
+        titre = request.form['titre']
+        description = request.form['description']
+        date = request.form['date_echeance']
+
+        if not titre:
+            flash('Le titre est obligatoire!')
         else:
-            # Afficher un message d'erreur si les identifiants sont incorrects
-            return render_template('formulaire_authentification.html', error=True)
+            conn = get_db_connection()
+            conn.execute('INSERT INTO taches (titre, description, date_echeance) VALUES (?, ?, ?)',
+                         (titre, description, date))
+            conn.commit()
+            conn.close()
+            return redirect(url_for('index'))
 
-    return render_template('formulaire_authentification.html', error=False)
+    return render_template('ajouter.html')
 
-@app.route('/fiche_client/<int:post_id>')
-def Readfiche(post_id):
-    conn = sqlite3.connect('database.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM clients WHERE id = ?', (post_id,))
-    data = cursor.fetchall()
-    conn.close()
-    # Rendre le template HTML et transmettre les données
-    return render_template('read_data.html', data=data)
-
-@app.route('/consultation/')
-def ReadBDD():
-    conn = sqlite3.connect('database.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM clients;')
-    data = cursor.fetchall()
-    conn.close()
-    return render_template('read_data.html', data=data)
-
-@app.route('/enregistrer_client', methods=['GET'])
-def formulaire_client():
-    return render_template('formulaire.html')  # afficher le formulaire
-
-@app.route('/enregistrer_client', methods=['POST'])
-def enregistrer_client():
-    nom = request.form['nom']
-    prenom = request.form['prenom']
-
-    # Connexion à la base de données
-    conn = sqlite3.connect('database.db')
-    cursor = conn.cursor()
-
-    # Exécution de la requête SQL pour insérer un nouveau client
-    cursor.execute('INSERT INTO clients (created, nom, prenom, adresse) VALUES (?, ?, ?, ?)', (1002938, nom, prenom, "ICI"))
+@app.route('/supprimer/<int:id>', methods=('POST',))
+def supprimer(id):
+    conn = get_db_connection()
+    conn.execute('DELETE FROM taches WHERE id = ?', (id,))
     conn.commit()
     conn.close()
-    return redirect('/consultation/')  # Rediriger vers la page d'accueil après l'enregistrement
-                                                                                                                                       
-if __name__ == "__main__":
-  app.run(debug=True)
+    flash('Tâche supprimée!')
+    return redirect(url_for('index'))
+
+@app.route('/terminer/<int:id>', methods=('POST',))
+def terminer(id):
+    conn = get_db_connection()
+    # On met à jour le statut à 1 (Vrai)
+    conn.execute('UPDATE taches SET est_terminee = 1 WHERE id = ?', (id,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for('index'))
+
+if name == 'main':
+    app.run(debug=True)
